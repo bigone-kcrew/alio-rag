@@ -1,7 +1,7 @@
-# 07. MCP 도구 13개 상세
+# 07. MCP 도구 14개 상세
 
-> 기준일 2026-11-26. **정의의 근거**: 운영 MCP 서버(이미지 `dev-20261126c13`)의 `tools/list` 응답을 서버 프로세스에서 직접 추출했다(등급 `internal`·`external` 모두 13개). 인자·열거값·필수 여부는 그 응답과 같다. **동작의 근거**: `src/serving/` 핸들러 코드. 대조 결과는 [CHECKLIST.md](../CHECKLIST.md)에 있다.
-> 서버는 일부 도구의 설명을 «도구 목록 크기 예산» 때문에 일부러 짧게 둔다(`structured_query`·`find_cases`·`query_sql` 등). 아래 «용도»는 코드에 근거한 더 자세한 설명이다.
+> 기준일 2026-11-26. **정의의 근거**: 운영 MCP 서버(이미지 `dev-20261126c15`)의 `tools/list` 응답을 서버 프로세스에서 직접 추출했다(등급 `external` 14개 확인, `find_citing` 추가; 앞선 c13 추출은 13개였다). 인자·열거값·필수 여부는 그 응답과 같다. **동작의 근거**: `src/serving/` 핸들러 코드. 대조 결과는 [CHECKLIST.md](../CHECKLIST.md)에 있다.
+> 서버는 일부 도구의 설명을 «도구 목록 크기 예산» 때문에 일부러 짧게 둔다(`structured_query`·`find_citing`·`find_cases`·`query_sql` 등). 아래 «용도»는 코드에 근거한 더 자세한 설명이다.
 
 ## 공통 사항
 
@@ -10,7 +10,7 @@
 - 응답의 모든 문자열은 반환 시점에 개인정보 마스킹을 거친다(등급별 규칙).
 - 판본 표식: 문서가 나오는 응답은 `edition_state`·`edition_warning`·`effective_from/to` 를 함께 준다. «현행 아님»인 근거는 그렇게 밝혀 인용해야 한다.
 - **0건 ≠ 없음.** 적재 범위·필터·모드 한계로 못 찾았을 수 있다.
-- 도구 노출은 등급에 따라 달라질 수 있다(닫힌 등급에서는 `find_cases`·`query_sql`·`scan_documents` 를 목록에서 빼고, 직접 호출하면 «이 도구는 현재 사용 등급에서는 제공되지 않습니다» 오류). 조회한 2026-11-26 에는 external 등급에도 13개가 모두 열려 있었다.
+- 도구 노출은 등급에 따라 달라질 수 있다(닫힌 등급에서는 `find_cases`·`query_sql`·`scan_documents`·`find_citing` 을 목록에서 빼고, 직접 호출하면 «이 도구는 현재 사용 등급에서는 제공되지 않습니다» 오류). 조회한 2026-11-26(c15)에는 external 등급에도 14개가 모두 열려 있었다.
 - `doc_id`: 응답 행의 `doc_id`(DB 실값)를 그대로 다른 도구에 넘긴다. 옛 형식 `corpus:rel_path` 도 한 번 더 찾아 준다. 못 찾으면 «추측하거나 지어내지 말고 search_corpus 결과의 doc_id 를 그대로 써서 다시 호출하세요» 오류.
 
 ---
@@ -287,7 +287,40 @@
 
 ---
 
-## 12. `find_cases`
+## 12. `find_citing`
+
+**용도**: **법령(·조문)을 인용하는 기관 내규·단체협약 조문**을 거꾸로 찾는다(법령 기준 역조회). 결과는 **기관 단위 목록**이며 순위·빈도가 아니다. 인용 링크 표 `rag_ext.bylaw_cite_link` 의 `kind='law'` 행만 읽는다([05](05_database.md), [08](08_structured_cases_sql.md#4-find_citing-과-인용-링크-표)).
+
+| 인자 | 설명 |
+|---|---|
+| `law` **필수** | 법령명(약칭 가능, 2~80자). 약칭 일부(노조법·근기법 등)는 정식명으로 해석하고, 여러 법령과 맞으면 `ambiguous` + `candidates` 를 돌려준다 |
+| `art` | 조 번호. `제60조`·`60`·`18의2` 형식 |
+| `corpus` | `bylaws`(기관 내규) 또는 `ca`(단체협약). 생략하면 둘 다 |
+| `inst` | 기관명(약칭은 정식명으로 해석, 부분일치) |
+| `limit` | 1~50(기본 20) |
+
+(코드에는 기관당 표시 건수 `per_inst`(1~3)도 있으나 `tools/list` 스키마에는 노출되지 않는다.)
+
+**응답**: `law`, `law_key`, `resolved`, `art`, `corpus`, `inst`, **`units_total`**(접은 뒤 조문 단위 수), **`institutions_total`**, **`truncated_scan`**, `count`, `rows[]`{`doc_id`, `seq`, `corpus`, `inst_code`, `inst_name`, `doc_title`, `art_ref`(인용하는 조), `cited`(인용 문구), `cited_art`(인용된 조·항), `ed_conf`, `ed_note`}, **`coverage`**{`scope`, `law_links_total`, `law_in_corpus`}, **`note`**, 0건이면 `hint`.
+
+**규칙·한계**
+- **기관당 최신 판 1건으로 접는다**: 같은 기관·같은 문서 계열·같은 조문의 구판은 빼고 최신 판만 남긴다. 연혁 판과 출연연(`scope=extra`)은 제외한다.
+- **`ed_conf` 가 `ok` 가 아니면 «시점 판 확인 불가»**(`ed_note`) — 인용 당시의 법 «판»이 맞는지 확인하지 못한 행이다. 조 번호가 개정으로 옮겨졌는지는 확인하지 않는다.
+- **맨 «법 제N조»(법령명 없이 «이 법»·«법»만 쓴 표기)는 연결하지 않는다.** 조 번호 0(서식 자리표시자 «제0조»)은 제외하고 `art_no ≥ 1` 만 쓴다.
+- **법령만 주고 조를 주지 않으면 스캔 한도 4,000행**에서 끊긴다(`truncated_scan=true` — 기관 수는 하한).
+- **legal 코퍼스에 수록된 법령만 연결된다.** 미수록 법령은 인용이 있어도 나오지 않는다(`law_in_corpus=false` + 안내). 구법명(개명 전 법령명)도 연결되지 않는다.
+- 규칙 기반 추출(LLM 아님)이라 약칭·표기 변형을 놓칠 수 있다. 정밀도·한계의 수치는 [08](08_structured_cases_sql.md#4-find_citing-과-인용-링크-표). **0건은 «인용 없음» 확정이 아니다.**
+- 동시 실행 4건 상한(초과 시 `BUSY`), 조회 5초 제한, 질의·인용 문구는 반환 시 마스킹.
+
+```json
+{"name":"find_citing","arguments":{"law":"근로기준법","art":"제60조","corpus":"bylaws","limit":20}}
+{"name":"find_citing","arguments":{"law":"노조법","corpus":"ca","limit":10}}
+```
+**실패 시 안내**: `resolved=false` 이면 `note` 를 따른다(미수록 법령이면 `search_corpus` 키워드 검색 병행).
+
+---
+
+## 13. `find_cases`
 
 **용도**: **다기관 사례 카드**(감사·이사회·노사·평가) 검색 — 요지·원문 인용·근거 법령. 카드는 LLM 이 공시 문서에서 추출한 **표본**이다.
 
@@ -311,7 +344,7 @@
 
 ---
 
-## 13. `query_sql`
+## 14. `query_sql`
 
 **용도**: **공개용 읽기 전용 뷰**에 대한 SELECT 한 문장(최대 200행). 먼저 `list_catalog(kind=sql_guide)` 로 표·열·규칙을 확인한다. 적재된 표본 기준이므로 전수·합계를 단정하지 않는다.
 

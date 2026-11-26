@@ -36,13 +36,13 @@ flowchart LR
   B --> C["③ 적재<br/>조문 파싱·청킹<br/>PostgreSQL"]
   C --> D["④ 임베딩<br/>bge-m3 1024차원<br/>로컬 GPU"]
   D --> E["⑤ 색인<br/>pgvector HNSW<br/>pg_bigm·pg_trgm"]
-  E --> F["⑥ 서빙<br/>MCP 13개 도구<br/>키·한도·마스킹"]
+  E --> F["⑥ 서빙<br/>MCP 14개 도구<br/>키·한도·마스킹"]
   F --> G["⑦ 평가<br/>골든셋·A/B<br/>레드팀"]
 ```
 
 자세한 흐름은 [docs/01_overview.md](docs/01_overview.md)에 있습니다.
 
-### MCP 도구 13개
+### MCP 도구 14개
 
 | 도구 | 용도 |
 |---|---|
@@ -57,6 +57,7 @@ flowchart LR
 | `get_related` | 조문이 인용하는/인용되는 조문(근사) |
 | `structured_query` | 구조화 표(임직원 수·채용·징계·지적·업무추진비·계약 등)를 DB 에서 직접 조회 |
 | `scan_documents` | 필터한 문서 집합 본문 전체에서 용어를 찾는 느린 서버측 grep |
+| `find_citing` | 법령(·조문)을 인용하는 기관 내규·단체협약 조문 역조회(기관 단위 목록, 순위·빈도 아님) |
 | `find_cases` | 다기관 사례 카드(감사·이사회·노사·평가) 검색 |
 | `query_sql` | 공개용 읽기 전용 뷰에 대한 SELECT 만 허용하는 SQL |
 
@@ -72,7 +73,7 @@ flowchart LR
 | [04_load_embedding](docs/04_load_embedding.md) | 조문 파싱, 청킹, 임베딩, HNSW, 일일 델타, 정합성 |
 | [05_database](docs/05_database.md) | DB 스키마·인덱스·뷰·롤·마스킹·함정 |
 | [06_search_serving](docs/06_search_serving.md) | 검색 모드, 융합, 재랭크, 판본·시점, 서빙 가드 |
-| [07_mcp_tools](docs/07_mcp_tools.md) | MCP 도구 13개 상세 |
+| [07_mcp_tools](docs/07_mcp_tools.md) | MCP 도구 14개 상세 |
 | [08_structured_cases_sql](docs/08_structured_cases_sql.md) | 구조화 조회, 사례 카드, `query_sql` 정책 |
 | [09_evaluation](docs/09_evaluation.md) | 평가 방법론과 결과(한계 포함) |
 | [10_operations](docs/10_operations.md) | 일일 체인, 알림, 키·한도, 마스킹·등급, 롤백 |
@@ -83,7 +84,7 @@ flowchart LR
 
 | 폴더 | 내용 |
 |---|---|
-| `src/serving/` | MCP 서버(stdio·HTTP), 검색, 구조화 조회, 사례 카드, `query_sql`, 마스킹, 재랭크, 질의 로그 |
+| `src/serving/` | MCP 서버(stdio·HTTP), 검색, 구조화 조회, 사례 카드, 법령 역조회(`find_citing`), 질의 속 기관명 추출, `query_sql`, 마스킹, 재랭크, 질의 로그 |
 | `src/pipeline/` | 조문 파서·청커, 적재, 임베딩 클라이언트·입력 정의, HNSW 스크립트, 적재 전 게이트 |
 | `src/extraction/` | 구조화 추출기(공시 표 필드, 업무추진비·소송·이사회·기부, 계약, 징계, 지적) |
 | `.env.example` | 환경변수 **이름만**(값 없음) |

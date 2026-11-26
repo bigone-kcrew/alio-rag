@@ -47,7 +47,7 @@ module.exports = function (H) {
   function validate(o) {
     const d = o.dataset, ks = Object.keys(o);
     for (const k of ks) if (RANK_PARAMS.includes(k)) throw refuse(`${k}: 순위·정렬·기관 간 비교는 제공하지 않습니다(이중집계·단위 오류·정규화 한계로 «전체/최다» 가 틀릴 수 있어 레드팀 권고로 보류)`);
-    if (!o.inst) throw bad('inst(기관명)가 필요합니다 — 기관을 지정하지 않는 전 기관 합계·순위·목록은 제공하지 않습니다. ' + ALT);
+    if (!o.inst) throw bad('inst(기관명)가 필요합니다 — 기관을 지정하지 않는 전 기관 합계·순위·목록은 제공하지 않습니다. 여러 기관 비교는 도구 목록에 있는 count_institutions(예: {keyword:"…", max_list:50})·find_cases(예: {topic:"…"})·search_corpus(item=…, distinct_inst=true)로, 이 도구는 기관 1곳 지정(예: inst:"한국철도공사"). ' + ALT);
     if (/[,，]/.test(o.inst)) throw refuse('기관 간 비교·다기관 합계는 제공하지 않습니다 — inst 는 기관 1곳');
     for (const k of ['q', 'result']) if (k in o) { o[k] = String(o[k]).trim(); if (o[k].length > 60) throw bad(`${k} 는 60자 이내`); }
     if ('q' in o) { if (o.q.length < 2) throw bad('q 는 2자 이상'); if (BAD_Q.test(o.q)) throw refuse('q 에 순위·최다·횟수·비율·합계 등 통계 요구가 들어 있습니다 — 이 도구는 키워드로 행을 거르는 용도입니다'); }

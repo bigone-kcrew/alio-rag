@@ -24,8 +24,17 @@ const bad = m => Object.assign(new Error(m), { code: 'BAD_REQUEST' });
 const NOTICE = '«찾지 못함 ≠ 없음»: 이 결과는 수집·변환된 문서 본문(coverage 의 스캔 완료 범위)에서 입력한 표현(과 확장어)이 글자 그대로 나온 곳만이다. 본문 없는 문서·이미지 PDF·변환 실패·수집 범위 밖 첨부·다른 표현/오탈자는 잡히지 않고, 언급이 곧 사실(구매·시행 등)을 뜻하지도 않는다 — 발췌를 읽고 판단할 것. next_cursor 가 있으면 coverage.docs_remaining 만큼 아직 안 본 것이다.';
 
 // 검색어 정리: 문자열|배열 → `|` 분리·공백 정리·중복 제거. 2~40자, 최대 MAX_TERMS.
-function parseTerms(raw) {
-  const arr = (Array.isArray(raw) ? raw : [raw]).flatMap(x => String(x == null ? '' : x).split('|')).map(s => s.replace(/\s+/g, ' ').trim()).filter(Boolean);
+const JSON_ARR_NOTE = '문자열 배열을 배열로 해석했다(terms 는 JSON 문자열이 아니라 배열 또는 «A|B» 로 보내면 된다).';
+// «["a","b"]» 형태의 문자열(JSON 배열을 문자열로 보낸 경우)은 배열로 푼다. «[별표 1]» 같은 평범한 대괄호 표현은 그대로 검색어. 따옴표로 시작하는데 파싱이 안 되면 0건으로 속이지 않고 오류.
+function unJson(x, notes) {
+  if (typeof x !== 'string') return [x];
+  const s = x.trim(); if (!/^\[\s*(?:["']|\])/.test(s) || !s.endsWith(']')) return [x];
+  let v; try { v = JSON.parse(s); } catch (e) { v = null; }
+  if (!Array.isArray(v) || v.some(t => typeof t !== 'string')) throw bad('terms 가 배열처럼 보이지만 JSON 문자열 배열로 읽을 수 없습니다(작은따옴표·끝 쉼표 불가). 배열 [\"전파차단기\",\"재밍\"] 또는 문자열 "전파차단기|재밍" 으로 보내세요.');
+  if (notes) notes.push(JSON_ARR_NOTE); return v;
+}
+function parseTerms(raw, notes) {
+  const arr = (Array.isArray(raw) ? raw : [raw]).flatMap(x => unJson(x, notes)).flatMap(x => String(x == null ? '' : x).split('|')).map(s => s.replace(/\s+/g, ' ').trim()).filter(Boolean);
   const out = [...new Set(arr)];
   if (!out.length) throw bad('terms 가 필요합니다(문자열 또는 배열, «A|B» 로 OR). 예: ["전파차단기","재밍"]');
   for (const t of out) if ([...t.replace(/\s/g, '')].length < 2 || [...t].length > 40) throw bad('검색어는 2~40자여야 합니다: «' + t.slice(0, 20) + '»');
@@ -118,7 +127,8 @@ function buildScope(a) {
 const cursorOk = c => c == null || c === '' || (typeof c === 'string' && c.length <= 600);
 async function scanDocuments(withPooled, a, opts = {}) {
   a = a && typeof a === 'object' ? a : {};
-  let terms = parseTerms(a.terms != null ? a.terms : a.keyword);
+  const termNotes = [];
+  let terms = parseTerms(a.terms != null ? a.terms : a.keyword, termNotes);
   const exp = a.expand === true ? QX.expandTerms(terms) : null;
   if (exp) terms = exp.terms;
   if (terms.length > MAX_TERMS * 2) terms = terms.slice(0, MAX_TERMS * 2);
@@ -237,7 +247,7 @@ async function scanDocuments(withPooled, a, opts = {}) {
     const remaining = tot ? Math.max(0, tot.total - scanned) : null;
     const complete = done && !timedOut;
     const out = {
-      tool_note: 'scan_documents — 문서 집합 전수 문자열 검색(서버측 grep). 키워드 묶음은 OR.',
+      tool_note: 'scan_documents — 문서 집합 전수 문자열 검색(서버측 grep). 키워드 묶음은 OR.' + (termNotes.length ? ' ' + termNotes[0] : ''),
       terms_used: terms, ...(exp && exp.expanded.length ? { expanded_terms: exp.expanded } : {}),
       filters_applied: sc.info, ...(sc.notes.length ? { filter_notes: sc.notes } : {}),
       coverage: {
@@ -264,7 +274,8 @@ async function scanDocuments(withPooled, a, opts = {}) {
 
 // ── get_document find: 한 문서 안에서 일치 구절만 ──
 async function findInDocument(withPooled, resolveDocId, annotateEdition, a) {
-  let terms = parseTerms(a.find);
+  const findNotes = [];
+  let terms = parseTerms(a.find, findNotes);
   const exp = a.expand === true ? QX.expandTerms(terms) : null; if (exp) terms = exp.terms;
   const regs = terms.map(t => [t, termRegex(t)]), pats = likePatterns(terms);
   const ctx = intIn(a.context, 150, 40, 400), per = intIn(a.max_matches, 20, 1, 60);
@@ -285,7 +296,7 @@ async function findInDocument(withPooled, resolveDocId, annotateEdition, a) {
     if (TH.v2On() && firstRow) { const c1 = (await c.query('SELECT left(body, 1500) AS b FROM articles WHERE doc_id = $1 AND seq = 1', [docId])).rows[0]; th = c1 ? TH.headerFor(c1.b, firstRow) : null; }
     return {
       ...(th ? { table_header: th.text, header_source: th.source, header_confidence: th.confidence } : {}),
-      document: annotateEdition([doc])[0], find: { terms_used: terms, ...(exp && exp.expanded.length ? { expanded_terms: exp.expanded } : {}) },
+      document: annotateEdition([doc])[0], find: { terms_used: terms, ...(findNotes.length ? { note: findNotes[0] } : {}), ...(exp && exp.expanded.length ? { expanded_terms: exp.expanded } : {}) },
       articles_with_match: arts, total_matches: n, matches_shown: matches.length, ...(matches.length < n ? { more_matches: true } : {}),
       articles_scanned: total.n, doc_chars: Number(total.chars), matches,
       note: matches.length ? '일치 구절만 보여 준 것이다(전후 ' + ctx + '자). 맥락이 필요하면 get_document(include_body)·get_article 로 해당 seq 를 읽을 것.' : '이 문서 본문(청크 ' + total.n + '개)에서 일치 없음 — «이 문서에는 해당 표현이 없다» 는 뜻일 뿐 다른 표현·표/이미지 속 글자는 잡히지 않는다.',

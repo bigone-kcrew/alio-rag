@@ -75,7 +75,7 @@ function normalize(a, C) {
   const txt = (k, lo, hi) => { if (a[k] == null || a[k] === '') return null; const s = String(a[k]).replace(/\s+/g, ' ').trim(); if ([...s.replace(/\s/g, '')].length < lo || [...s].length > hi) throw bad(`${k} 는 ${lo}~${hi}자`); if (BAD_Q.test(s)) throw refuse(`${k} 에 순위·최다·건수·비율 등 통계 요구가 들어 있습니다 — 이 도구는 사례 카드를 거르는 용도입니다`); return s; };
   o.topic = txt('topic', 2, 60); o.type = txt('type', 2, 20); o.result = txt('result', 2, 20); o.inst = txt('inst', 2, 40); o.ministry = txt('ministry', 2, 40);
   if (o.topic) { o.terms = [...new Set(o.topic.split('|').map(s => s.trim()).filter(Boolean))]; if (o.terms.length > 6 || o.terms.some(t => [...t.replace(/\s/g, '')].length < 2 || [...t].length > 20)) throw bad('topic 은 «A|B» 최대 6개, 각 2~20자'); }
-  if (a.code != null && a.code !== '') { o.code = String(a.code).trim(); if (!CODE_NAME[o.code]) throw bad('code 는 ' + Object.keys(CODE_NAME).join('·') + ' 중 하나'); if (!C.codes.includes(o.code)) throw bad('code ' + o.code + '(' + CODE_NAME[o.code] + ') 카드는 현재 제공하지 않습니다(독립 검증 결과 재추출 전까지 비활성). ' + ALT); }
+  if (a.code != null && a.code !== '') { o.code = String(a.code).trim(); if (!CODE_NAME[o.code]) throw bad('code 는 ' + Object.keys(CODE_NAME).join('·') + ' 중 하나(list_catalog(kind="case_codes") 참조)'); if (!C.codes.includes(o.code)) throw bad('code ' + o.code + '(' + CODE_NAME[o.code] + ') 카드는 현재 제공하지 않습니다(독립 검증 결과 재추출 전까지 비활성). ' + ALT); }
   if (a.favor != null && a.favor !== '') {
     if (!C.favorOn) throw bad('favor 필터는 현재 제공하지 않습니다(유불리 판단은 모델 산출물로 검증 중). favor 없이 호출하세요.');
     o.favor = String(a.favor).trim(); if (!FAVORS.includes(o.favor)) throw bad('favor 는 ' + FAVORS.join('|'));
@@ -91,7 +91,13 @@ function normalize(a, C) {
   o.dateBasis = a.date_basis == null || a.date_basis === '' ? 'submitted' : String(a.date_basis); if (!['submitted', 'content'].includes(o.dateBasis)) throw bad('date_basis 는 submitted(제출일, 기본)|content(본문 회의일, 없으면 제출일)');
   o.withBasis = a.with_basis == null || a.with_basis === '' ? true : a.with_basis === true || a.with_basis === 'true';
   o.months = a.months == null || a.months === '' ? null : (() => { if (!/^\d+$/.test(String(a.months).trim())) throw bad('months 는 1~24 정수'); return intIn(a.months, 12, 1, 24); })();
-  const day = (v, n) => { if (v == null || v === '') return null; const s = String(v).trim(); if (!/^20\d{2}-\d{2}-\d{2}$/.test(s) || isNaN(Date.parse(s))) throw bad(n + ' 는 YYYY-MM-DD'); return s; };
+  o.inputNotes = [];
+  const day = (v, n) => {
+    if (v == null || v === '') return null; let s = String(v).trim();
+    if (/^20\d{2}$/.test(s)) { const r = n === 'from' ? s + '-01-01' : s + '-12-31'; o.inputNotes.push(`${n}="${s}"(연도 4자리)를 ${r} 로 해석했다.`); return r; }
+    if (!/^20\d{2}-\d{2}-\d{2}$/.test(s) || isNaN(Date.parse(s))) throw bad(`${n} 는 YYYY-MM-DD 날짜(예: ${n}="${n === 'from' ? '2025-01-01' : '2025-12-31'}") 또는 연도 4자리(예: "2025")여야 합니다(받은 값 «${s.slice(0, 20)}»). 최근 N개월은 months(1~24)를 쓰세요.`);
+    return s;
+  };
   o.from = day(a.from, 'from'); o.to = day(a.to, 'to');
   if (o.months) { const d = new Date(Date.now() + 9 * 3600e3); d.setUTCMonth(d.getUTCMonth() - o.months); const c = d.toISOString().slice(0, 10); if (!o.from || c > o.from) o.from = c; }
   const bo = (v, d) => v == null ? d : v === true || v === 'true' ? true : v === false || v === 'false' ? false : d;
@@ -103,13 +109,13 @@ function normalize(a, C) {
   if (o.favor && !o.code && !o.codes.length) throw bad('favor 필터를 제공하는 코드가 현재 노출되어 있지 않습니다. favor 없이 호출하세요.');
   // C2View: 기준연도(ref_year) 필터 — card2 코드 전용. «2024» 또는 «2022-2024»
   if (a.ref_year != null && a.ref_year !== '') {
-    const m = /^(20\d{2})\s*(?:[-~]\s*(20\d{2}))?$/.exec(String(a.ref_year).trim()); if (!m || (m[2] && +m[2] < +m[1])) throw bad('ref_year 는 2024 또는 2022-2024 형식');
+    const m = /^(20\d{2})\s*(?:[-~]\s*(20\d{2}))?$/.exec(String(a.ref_year).trim()); if (!m || (m[2] && +m[2] < +m[1])) throw bad('ref_year 는 2024 또는 2022-2024 형식입니다(예: ref_year="2024"). 사용 가능한 code 는 list_catalog(kind="case_codes") 로 확인하세요.');
     o.refFrom = +m[1]; o.refTo = +(m[2] || m[1]);
-    if (o.code && !C2.has(o.code)) throw bad('ref_year 는 ' + [...C2].join('·') + ' 카드에만 씁니다(노사·이사회·감사 카드는 months·from·to)');
+    if (o.code && !C2.has(o.code)) throw bad('ref_year 는 ' + [...C2].join('·') + ' 카드에만 씁니다(노사·이사회·감사 카드는 months·from·to). 코드별 사용법은 list_catalog(kind="case_codes") 로 확인하세요. 예: code="' + [...C2][0] + '", ref_year="2024"');
     if (o.favor) throw bad('ref_year 와 favor 는 함께 쓸 수 없습니다(favor 는 노사 코드 전용)');
-    if (!o.code) { o.codes = C.codes.filter(c => C2.has(c)); if (!o.codes.length) throw bad('ref_year 를 쓰는 코드(' + [...C2].join('·') + ')가 현재 노출되어 있지 않습니다.'); }
+    if (!o.code) { o.codes = C.codes.filter(c => C2.has(c)); if (!o.codes.length) throw bad('ref_year 를 쓰는 코드(' + [...C2].join('·') + ')가 현재 노출되어 있지 않습니다. list_catalog(kind="case_codes") 로 노출된 코드를 확인하고, ref_year 없이 months(예: months=12)로 거르세요.'); }
   }
-  if (o.code && NODATE.has(o.code) && (o.from || o.to)) throw bad('code ' + o.code + '(' + CODE_NAME[o.code] + ') 카드에는 제출일이 없어 months·from·to 를 쓸 수 없습니다 — 기준연도 ref_year(예 2024 또는 2022-2024)로 거르세요.');
+  if (o.code && NODATE.has(o.code) && (o.from || o.to)) throw bad('code ' + o.code + '(' + CODE_NAME[o.code] + ') 카드에는 제출일이 없어 months·from·to 를 쓸 수 없습니다 — 기준연도 ref_year(예 2024 또는 2022-2024)로 거르세요. 예: code="' + o.code + '", ref_year="2024"');
   o.ignored = ignored;
   return o;
 }
@@ -331,7 +337,7 @@ async function findCases(withPooled, a, ctx) {
       ...(ref ? { similar_to: simOut(ref, o) } : {}), distinct_inst: o.distinct, ...(o.distinct ? { per_inst: o.per } : {}), include_old: o.includeOld, min_confidence: C.minConfName };
     const out = {
       tool_note: 'find_cases — LLM 이 문서에서 추출한 사례 카드(요지·결과·원문 인용). 순위·최다·전수가 아니며 정렬은 제출일 최신순이다.',
-      filters_applied: fa, ...(o.ignored.length ? { params_ignored: o.ignored } : {}),
+      filters_applied: fa, ...(o.inputNotes && o.inputNotes.length ? { input_notes: o.inputNotes } : {}), ...(o.ignored.length ? { params_ignored: o.ignored } : {}),
       coverage: {
         scope_note: onlyC2 ? '카드는 LLM 이 공시 문서에서 추출한 표본이며 전수 아님(적재된 문서만 대상 — coverage.by_code 의 docs).' : '카드는 최근 12개월 제출분 약 3,000문서(코드별 쿼터로 고른 표본) 파일럿 범위이며 전수 아님(card2 코드는 card2_notice 참조).',
         cards_matching: rows.tot.n, docs_with_matching_cards: rows.tot.docs, institutions_with_matching_cards: rows.tot.insts,

@@ -25,6 +25,7 @@
 |---|---|---|
 | 기관명·약칭 | 입력 **전체**가 약칭 사전과 정확히 같을 때만 정식명으로 바꾼다(`inst_alias`). 정식명 부분일치 필터라 약칭이 0건이 되는 것을 막는다 | 사전은 JSON 데이터 파일(30초마다 mtime 확인해 핫리로드). 이 저장소에는 데이터를 넣지 않았다 |
 | 결정론적 가제티어 | 기관·연도·활용처 키워드를 추출하고 나머지를 잔여 검색어로 둔다. **LLM 아님 — 같은 질의는 항상 같은 결과** | 의도 라벨(조문·비교·집계·사례·검색)은 힌트용이며 오분류해도 검색은 불변 |
+| 질의 속 기관명 → `inst` 필터 | `INST_LIFT=v2` 일 때 `search_corpus`·`search_extra` 의 키워드에서 기관 정식명·약칭·변형을 **결정론적으로**(LLM 없음) 추출해 `inst` 를 채운다(`inst_extract.js`). **모호(후보 2곳 이상)·복수 기관·일반어 단독(«공단»·«공사»·«연구원» 등)이면 적용하지 않는다.** 질의 문자열은 바꾸지 않는다 | 기관 사전은 데이터 파일(`inst_list.json`, 이 저장소에 미포함)이며 `IF_INST_LIST` 로 지정. 이 플래그의 운영 on/off 는 확인하지 못했다(미확인). 효과 측정은 [09](09_evaluation.md) |
 | 동의어·부처 구명칭 | `expand=true` 일 때 사전 묶음으로 변형 질의(최대 6개)를 만든다. 원문은 포함하지 않는다 | 1쪽만, `expanded_terms` 응답 |
 | 항목(공시 항목) 해석 | 자연어 항목명·별칭·코드를 항목 카탈로그로 코드 목록으로 바꾼다(`item_filter`). 모드 `off|explicit|auto` | 사전 파일은 데이터라 미포함. `list_catalog(kind=items)` 로 확인 |
 | 활용처(usecase) | `recruit·audit·governance·labor·finance·welfare·safety·security·esg` 태그 필터. 문서에 태그가 있는 경우만 통과(kNN 태깅으로 확장) | 알 수 없는 값은 0건 + `usecase_warning` |
@@ -79,6 +80,7 @@
 | 검색 결과 캐시 | `SEARCH_CACHE=on`: 정규화 질의 + 모든 인자 + **코퍼스 변경 카운터 스탬프**가 키. 일일 델타가 끝나면 스탬프가 바뀌어 저절로 무효화. TTL 법령·내규·단협 24h, 공시 6h. 스탬프를 못 읽으면 캐시를 쓰지 않는다(fail-open) |
 | 페이징 | `search_corpus` 는 `offset`, 응답 `has_more`·`next_offset`·`window_exhausted`. 볼 수 있는 범위는 앞쪽 약 200건 |
 | 응답 크기 | 60,000바이트 초과 시 경고(`MCP_RESPONSE_WARN_BYTES`). 도구 설명 길이도 «도구 목록 크기 예산» 때문에 일부 도구는 매우 짧다 |
+| 법령 역조회 | `find_citing` 은 검색이 아니라 인용 링크 표 조회다(`rag_ext.bylaw_cite_link`, [08](08_structured_cases_sql.md#4-find_citing-과-인용-링크-표)). 기관당 최신 판 1건으로 접고 `ed_conf` 가 `ok` 가 아니면 «시점 판 확인 불가»를 붙인다 |
 | 순위·최다 질문 | `RANKQ` 정규식으로 «가장·최다·순위» 질문을 감지해 한계 고지를 붙인다(`search_corpus` 의 상위 후보만으로는 전수·순위를 말할 수 없다) |
 
 ## 7. 서빙 가드·워밍·캐시 (운영)

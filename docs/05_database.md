@@ -65,12 +65,36 @@
 | 계약 | `contract_docs`, `contract_rows`, `contract_cp_map`, MV `contract_current_m`, 뷰 `contract_public`, `contract_small_agg` | 약 97만 행 | 수의계약 등 계약 표(70301) |
 | 징계·지적·채용 | `discipline_case`, `finding_meta`, `recruit_post`, 뷰 `recruit_open`·`recruit_closing_soon` | 2.7만 / 1.3만 / 2.5만 | 징계 처분, 국회·감사원 지적 메타, 접수 중 채용 |
 | 사례 카드 | `card_items`(41,989), `card2_items`(23,631), `card_event`, `card_doc_feat`, `card_doc_sat`, 뷰 `card2_find_v` | — | LLM 추출 카드([08](08_structured_cases_sql.md)) |
-| 인용 링크 | `bylaw_cite_link`(509,852), `card_cite_link` | — | 내규·카드 인용문을 대상 법령·판본에 연결 |
+| 인용 링크 | `bylaw_cite_link`(509,854, 정확), `bylaw_cite_run`, `card_cite_link` | — | 내규·단체협약 조문의 인용을 대상 법령·판본에 연결(아래 «인용 링크 표»). 백업 `bylaw_cite_link_bak_20261126` |
 | 추출 로그 | `extract_log`, `c2_extract_log`, `card_runs`, `card_doc_log` … | — | 추출 실행·실패 기록 |
 
 - `bak_*`·`*_bak_*`·`g_*`·`g3ab_*`·`cc_*` 등은 백업·시험·실험 테이블이다. 공개 도구는 읽지 않는다.
 - **갱신**: `rag_ext_refresh.py`(일일 델타 뒤 1회, `src/extraction/`)가 `public.documents` 의 `body_md5`·추출기 버전과 파생 테이블을 비교해 **변경된 문서만 재추출·교체**한다. 문서 단위 트랜잭션(자식 삭제 → 부모 삭제 → 삽입 → 현행 재계산), 실패는 비치명(그 문서만 건너뜀), 실행 잠금, 운영 스키마에 쓰려면 `RAG_EXT_PROD=1` 을 요구한다. 실행 뒤 materialized view 를 `REFRESH MATERIALIZED VIEW CONCURRENTLY` 로 갱신한다(계약 MV 확인, 나머지 MV 도 같은 방식으로 추정 — 미확인).
 - 알림 임계(추정치): 신규·변경이 연속 N일 0건, 실패율 2% 초과, 필드 키 미분류율 초과(예 코드 21401 은 기준선 51%라 65% 허용).
+
+### 인용 링크 표 `rag_ext.bylaw_cite_link` (2026-11-26 13:56 재적재 기준)
+
+내규(bylaws)·단체협약(ca)의 **모든 문서·모든 조문**(판본 포함)에서 «법령명 + 제N조» 표기를 **규칙 기반(LLM 없음)** 으로 추출해 대상 문서에 연결한 표다. 509,854행.
+
+| 열 | 뜻 |
+|---|---|
+| `link_id` (PK) | 행 번호 |
+| `src_doc_id`, `src_seq`, `src_corpus`, `src_inst_code`, `src_art_no`, `src_art_sub` | 인용하는 쪽(내규·단협 문서의 조문 청크) |
+| `ev_text`, `ev_start`, `ev_end` | 인용 문구와 `articles.body` 안의 위치(유니코드 코드포인트 오프셋; `substr(body, ev_start+1, ev_end-ev_start) = ev_text` 로 검증) |
+| `name_raw`, `law_key` | 본문에 쓰인 법령명 원문, 정규화한 법령 키 |
+| `art_no`, `art_sub`, `locator` | 인용된 조·가지조문, 항·호까지의 위치 표기(예 «제12조제2항») |
+| **`kind`** | `law`(legal 코퍼스의 법령으로 해소) · `unmatched`(법령명은 추출했으나 코퍼스에 없거나 해소 실패) · `bylaw`(내규→내규 인용) · `ca`(단체협약 참조) |
+| `dst_doc_id`, `edition_ef`, `edition_et` | 연결된 법령 문서와 그 판의 시행 구간 |
+| **`ed_conf`** | 인용 당시 판 신뢰도: `ok`(인용 시점이 판 구간 안) · `weak` · `gap`(구간 밖 등) |
+| `ref_date`, `ref_basis` | 인용 시점 판정에 쓴 날짜와 근거 |
+| **`how`** | 해소 방식: `exact` · `suffix` · `short_exact` · `alias`(약칭 사전) · `inline_alias`(«이하 "법"» 정의) · `connect`(앞 인용 이어받기) · `relative`·`relative_ante`(«같은 법») · `none` |
+| `reason`, `art_found`, `rule_id`, `rule_ver`, `run_id` | 미해소 사유, 대상 조문 존재 여부, 규칙 식별자(현행 `C1.v1+E4+RABC`), 적재 실행 |
+| **`verified_state`** | `auto_strict`(281,636) · `auto`(228,218) — 자동 추출이며 사람 검수 전이다. 교체 전 표에는 약한 연결 표지 `auto_weak_rel` 이 있었다 |
+
+- 열 값의 해석 중 `ed_conf` 의 `ok`(인용 시점이 판 구간 `[edition_ef, edition_et)` 안)만 내부 검증 기준으로 확인했고, `weak`·`gap` 과 `how`·`verified_state` 값의 세부 정의는 추출 규칙 코드를 보아야 하며 여기서는 이름에서 추정한 설명이다(미확인).
+- 분포(2026-11-26): `kind` = unmatched 220,101 · **law 183,854** · bylaw 101,289 · ca 4,610. law 행의 `ed_conf` = ok 149,247 · weak 18,201 · gap 16,406.
+- 인덱스: `UNIQUE (link_id)`, `UNIQUE (src_doc_id, src_seq, ev_start)`(멱등 적재 키), `bcl_law_art (law_key, art_no, art_sub) WHERE kind='law'`(법령 역조회), `bcl_src (src_doc_id, src_seq)`, `bcl_inst (src_inst_code, law_key)`, `bcl_unm (name_raw) WHERE kind='unmatched'`(사전 보강 후보 집계). FK 없음.
+- 정밀도·한계·적재·교체 절차는 [08](08_structured_cases_sql.md#4-find_citing-과-인용-링크-표).
 
 ### 구조화 추출 방식과 검증
 

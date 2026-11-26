@@ -110,7 +110,7 @@ flowchart LR
 - 법령 문서마다 `edition_group`, `edition_status`(`current`·`superseded`·`scheduled`·`repealed`·`lineage_closed`), `effective_from/to`, `repealed`, `lineage_successor` 를 둔다(`documents.meta` 와 파생 열).
 - 기본 검색은 **현행판만** 노출한다. 과거 판은 `all_versions=true`, 특정 시점은 `as_of`. 내규도 같은 규칙이다([06](06_search_serving.md)).
 - **내규-법령 정합**: 내규가 인용하는 법령의 개정 시점과 내규 개정 시점의 격차를 계산해 `bylaw_law_compliance` 에 남긴다(일일 갱신, 약 2.5분, 자기 테이블 교체). 판정 flags 에 상한을 두면 롱테일 법령이 통째로 사라지므로 상한은 커버리지가 아니라 상한임을 알고 쓴다(과거 60.4%가 버려진 사례).
-- **내규 인용 링크**: `rag_ext.bylaw_cite_link`(약 51만 행)가 «법령명 + 제N조» 형태의 인용을 대상 판본까지 해석해 보관한다. `get_related` 의 기반이다. 약칭·«같은 법»·시행령 위임 표현은 누락될 수 있다.
+- **내규 인용 링크**: `rag_ext.bylaw_cite_link`(509,854행, 2026-11-26 13:56 재적재)가 내규·단체협약 조문 본문의 «법령명 + 제N조» 인용을 규칙으로 추출해 대상 법령·판본에 연결해 보관한다. `find_citing`(법령 역조회)의 기반이며, `get_related` 는 질의 시점에 본문에서 정규식으로 인용을 뽑는 별도 경로다. 구조·정밀도·한계는 [05](05_database.md)·[08](08_structured_cases_sql.md). 일일 델타 편입은 «제안 단계(미구현)»라서 새 내규가 들어와도 이 표는 수동 재적재 전까지 갱신되지 않는다.
 
 ## 9. 정합성 검사
 

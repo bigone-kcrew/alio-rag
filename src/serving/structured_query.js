@@ -22,6 +22,7 @@ const GROUPS = { discipline: ['type', 'year', 'inst'], findings: ['status', 'yea
 const FIND_STATUS = ['완료', '일부완료', '미완료', '진행', '예정', '혼합', '미이행', '해당없음', '미분류'];
 
 const bad = m => Object.assign(new Error(m), { code: 'BAD_REQUEST' });
+const MULTI_ALT = '여러 기관 비교·전 기관 집계는 이 도구로 못 합니다 — 도구 목록에 있는 count_institutions(키워드가 나오는 기관 수·목록, 예: count_institutions{keyword:"…", max_list:50})·find_cases(다기관 사례, 예: find_cases{topic:"…"})·search_corpus(item=…, distinct_inst=true)로 하세요. 이 도구는 기관 1곳 지정 예: structured_query{dataset:"…", inst:"한국철도공사"}';
 const likeEsc = s => String(s).replace(/[\\%_]/g, '\\$&');
 const on = k => process.env[k] === 'on';
 const datasets = () => [...DATASETS, ...X.names()];
@@ -52,7 +53,7 @@ function normalizeArgs(a) {
   if ('group_by' in o) { o.group_by = str(o.group_by, 'group_by', 20); if (!X.ALLOWED[dataset] && !GROUPS[dataset].includes(o.group_by)) throw bad(`group_by 는 ${GROUPS[dataset].join('|')} (없으면 목록)`); }
   if ('tables' in o && o.tables !== 'all') throw bad('tables 는 "all" 만(생략하면 표 우선순위 적용)');
   if ('detail' in o && o.detail !== 'rows') throw bad('detail 은 "rows" 만(20305 임원: executives 와 함께 셀 단위 rows 도 받으려면)');
-  if (dataset === 'field_values') { if (!o.inst) throw bad('inst(기관명)가 필요합니다'); if (!o.item && !o.field) throw bad('item(항목명·코드) 또는 field(정규화 키·라벨 일부) 중 하나가 필요합니다'); }
+  if (dataset === 'field_values') { if (!o.inst) throw bad('inst(기관명)가 필요합니다 — ' + MULTI_ALT); if (!o.item && !o.field) throw bad('item(항목명·코드) 또는 field(정규화 키·라벨 일부) 중 하나가 필요합니다'); }
   if (dataset === 'recruit') { if (o.mode !== 'open' && o.mode !== 'closing_soon') throw bad('mode 는 open|closing_soon'); if (o.days && o.mode !== 'closing_soon') throw bad('days 는 mode=closing_soon 에서만'); }
   if (dataset === 'findings') {
     if ('code' in o && !['B1210', 'B1220'].includes(o.code)) throw bad('code 는 B1210(국회)|B1220(감사원)');
@@ -66,7 +67,7 @@ function normalizeArgs(a) {
 // ── 기관 해석: 약칭 → 정식명 → institutions 부분일치(정확히 하나일 때만) ─────────────
 async function pickInsts(c, text) {
   const names = [...new Set(String(text).split(/[,，]/).map(s => String(resolveInst(s.trim()) || '').trim()).filter(Boolean))];
-  if (!names.length) throw bad('inst(기관명)가 필요합니다');
+  if (!names.length) throw bad('inst(기관명)가 필요합니다 — ' + MULTI_ALT);
   if (names.length > MAX_INST) throw bad(`inst 는 최대 ${MAX_INST}곳입니다`);
   const out = [];
   for (const q of names) {

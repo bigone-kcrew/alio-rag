@@ -41,10 +41,14 @@ const FIND_CASES = process.env.MCP_FIND_CASES === 'on';   // FindCases(2026-11-2
 const FIND_CASES_EXT = process.env.MCP_FIND_CASES_EXTERNAL === 'on';   // 기본 off — external·등급 미지정 tier 에는 열지 않는다
 const SQL_TOOL = process.env.MCP_SQL_TOOL === 'on';   // SqlTool(2026-11-25): query_sql(읽기 전용 SQL)·list_catalog(kind=sql_guide) — 기본 off(도구 목록·응답 바이트 동일). external 은 MCP_SQL_TOOL_EXTERNAL=on 일 때만
 const fcOpen = tier => FIND_CASES && (tier === 'internal' || tier === 'master' || (FIND_CASES_EXT && tier === 'external'));
+const FIND_CITING = process.env.MCP_FIND_CITING === 'on';   // BylawCiteLoad(2026-11-26): find_citing(법령 기준 역조회, rag_ext.bylaw_cite_link) — 기본 off(도구 목록·응답 바이트 동일)
+const FIND_CITING_EXT = process.env.MCP_FIND_CITING_EXTERNAL === 'on';   // 기본 off — external·등급 미지정 tier 에는 열지 않는다
+const citOpen = tier => FIND_CITING && (tier === 'internal' || tier === 'master' || (FIND_CITING_EXT && tier === 'external'));
 const deepOpen = tier => DEEP && (tier === 'internal' || tier === 'master' || (DEEP_EXT && tier === 'external'));
 const DEEP_ARGS = ['expand', 'months', 'brief'];   // search_corpus 신규 인자
 const SQLT = require('./sql_tool.js');   // SqlTool: MCP_SQL_TOOL=on 일 때만 쓰임(off 면 require 만 — pg 는 호출 시 지연 로드)
 const QX = require('./query_expand.js');
+let INSTX = null; if (process.env.INST_LIFT === 'v2') { try { INSTX = require('./inst_extract.js'); } catch (e) { process.stderr.write('[inst_lift] 로드 실패 — 기능 없이 계속: ' + e.message + '\n'); } }   // InstFilter: INST_LIFT=v2 일 때만 추출기 로드(inst_extract.js·inst_list.json) · off(c5 liftInst 끔) — 미설정이면 종전과 동일
 const AM = require('./auto_mode.js');   // QueryStudy: SEARCH_AUTO_MODE=on 일 때만(자동 hybrid 승격·0건 hybrid 확대·0건 사유)
 const SCACHE = require('./search_cache.js');
 const CG = require('./code_guide.js');
@@ -518,8 +522,11 @@ async function searchWrapped(toolName, a, forced, open = true) {
   let autoInst = null, autoAsOf = null;
   if (AM.on() && (toolName === 'search_corpus' || toolName === 'search_extra')) {
     amode = AM.decide({ keyword: a.keyword, corpus: toolName === 'search_extra' ? 'bylaws' : a.corpus, hybrid: a.hybrid, semantic: a.semantic, body: a.body });
-    if (amode) { a = { ...a, hybrid: true }; if (!a.inst) { const li = AM.liftInst(a.keyword); if (li) { a.inst = li; autoInst = li; } } }   // c5: 질의 속 기관명 → inst 필터(승격 질의만)
+    if (amode) { a = { ...a, hybrid: true }; if (!a.inst && !process.env.INST_LIFT) { const li = AM.liftInst(a.keyword); if (li) { a.inst = li; autoInst = li; } } }   // c5: 질의 속 기관명 → inst 필터(승격 질의만)
     if (a.corpus === 'legal' && !a.as_of && !a.all_versions) { const d = AM.dateToAsOf(a.keyword); if (d) { a = { ...a, as_of: d.asOf, keyword: d.keyword }; autoAsOf = d; } }   // c5: 날짜·판본 문구 → as_of
+  }
+  if (INSTX && process.env.INST_LIFT === 'v2' && !a.inst && (toolName === 'search_corpus' || toolName === 'search_extra') && a.keyword) {   // InstFilter: 모든 모드에서 질의 속 기관명 → inst(모호·복수·일반어면 미적용)
+    const x = INSTX.extract(a.keyword); if (x.inst) { a = { ...a, inst: x.inst }; autoInst = x.inst; }
   }
   const closedIg = [];
   if (DEEP && !open && toolName === 'search_corpus') { a = { ...a }; for (const k of DEEP_ARGS) if (a[k] !== undefined) { closedIg.push(k); delete a[k]; } }
@@ -573,13 +580,19 @@ let _baseTools = null;
 let _noFc = null;
 let _lcOrig = null;   // FindCasesPlus: list_catalog 원래 스키마(닫힌 등급은 case_* kind 를 모르는 «기존» 목록을 받는다)
 function toolsFor(tier) {   // SqlTool: 등급별 목록 — 닫힌 등급은 query_sql 과 list_catalog 의 sql_guide kind 를 뺀다, 열린 등급은 list_catalog enum 에 sql_guide 가 빠져 있으면(FindCases 닫힘 등) 넣는다(캐시). 그 앞단은 FindCases 목록
-  const t = toolsForFc(tier);
+  const t = toolsForCit(tier, toolsForFc(tier));
   if (!SQL_TOOL) return t;
   const op = SQLT.open(tier), c = op ? _sqlOpen : _sqlClosed;
   if (c.src === t) return c.out;
   const fix = x => { if (x.name !== 'list_catalog') return x; const k = x.inputSchema && x.inputSchema.properties && x.inputSchema.properties.kind; if (!k || !Array.isArray(k.enum)) return x;
     if (op === k.enum.includes(SQLT.CATALOG_KIND)) return x; const y = JSON.parse(JSON.stringify(x)); y.inputSchema.properties.kind.enum = op ? [...k.enum, SQLT.CATALOG_KIND] : k.enum.filter(v => v !== SQLT.CATALOG_KIND); return y; };
   c.src = t; c.out = (op ? t : t.filter(x => x.name !== 'query_sql')).map(fix); return c.out;
+}
+let _noCit = null;
+function toolsForCit(tier, t) {   // BylawCiteLoad: 닫힌 등급에서는 find_citing 을 목록에서 뺀다(캐시)
+  if (!FIND_CITING || citOpen(tier)) return t;
+  if (!_noCit || _noCit.src !== t) _noCit = { src: t, out: t.filter(x => x.name !== 'find_citing') };
+  return _noCit.out;
 }
 const _sqlOpen = {}, _sqlClosed = {};
 function toolsForFc(tier) {   // FindCases: 닫힌 등급에서는 find_cases 를 목록에서 뺀다(캐시)
@@ -665,6 +678,15 @@ if (DEEP) {   // MCPdeep: 새 도구·find 분기 — 호출 한도는 mcp_ext.h
   HANDLERS.scan_documents = async (a, cctx) => {
     if (!deepOpen(cctx && cctx.tier)) throw new Error(CLOSED_MSG); const lim = EXT.heavyLimited('scan', cctx); if (lim) throw new Error(`scan_documents 호출 한도(분당 ${lim.max}회)를 넘었습니다. ${lim.retry}초 후 다시 시도하세요.`); return SC.scanDocuments(withPooled, a); };
 }   // 플래그가 모두 off 면 TOOLS·HANDLERS 불변
+if (FIND_CITING) {   // BylawCiteLoad: 법령 기준 역조회 — 본체 find_citing.js(READ ONLY·한도·마스킹은 거기서). 테이블이 없으면 «조회 실패» 로만 응답(다른 도구 무영향)
+  const FCI = require('./find_citing.js');
+  TOOLS.push(FCI.toolDef());
+  HANDLERS.find_citing = async (a, cctx) => {
+    if (!citOpen(cctx && cctx.tier)) throw new Error(CLOSED_MSG);
+    try { return await FCI.findCiting(withPooled, a, cctx); }
+    catch (e) { if (['BAD_REQUEST', 'BUSY'].includes(e.code)) throw e; if (e.code === '57014' || /statement timeout/i.test(e.message)) throw new Error('인용 조회가 시간 제한에 걸렸습니다. art·corpus·inst 로 범위를 좁혀 다시 시도하세요.'); process.stderr.write('[find_citing] ' + (e.code || '') + ' ' + e.message + '\n'); throw new Error('조회 실패(잠시 후 다시 시도)'); }
+  };
+}
 if (FIND_CASES) {   // FindCases: 사례 카드 검색 — 본체 find_cases.js(READ ONLY·한도·마스킹은 거기서)
   const FC = require('./find_cases.js');
   TOOLS.push(FC.toolDef());
@@ -737,7 +759,7 @@ async function dispatch(req, tier, label) {   // label: 서빙이 판정한 키 
   if (method === 'tools/list') return ({ jsonrpc: '2.0', id, result: { tools: toolsFor(tier) } });
   if (method === 'tools/call') {
     const name = params?.name;
-    const fn = (name === 'scan_documents' && DEEP && !deepOpen(tier)) || (name === 'find_cases' && FIND_CASES && !fcOpen(tier)) || (name === 'query_sql' && SQL_TOOL && !SQLT.open(tier)) ? async () => { throw new Error(CLOSED_MSG); } : HANDLERS[name];
+    const fn = (name === 'scan_documents' && DEEP && !deepOpen(tier)) || (name === 'find_cases' && FIND_CASES && !fcOpen(tier)) || (name === 'find_citing' && FIND_CITING && !citOpen(tier)) || (name === 'query_sql' && SQL_TOOL && !SQLT.open(tier)) ? async () => { throw new Error(CLOSED_MSG); } : HANDLERS[name];
     if (!fn) return ({ jsonrpc: '2.0', id, error: { code: -32602, message: '알 수 없는 도구: ' + name } });
     const _ql = qlog.begin('mcp', name, tier, params?.arguments, label), _t0 = Date.now();
     const _slowLog = ok => { const SLOW = process.env.SLOW_LOG_MS === undefined ? 3000 : +process.env.SLOW_LOG_MS, ms = Date.now() - _t0; if (SLOW > 0 && ms >= SLOW) process.stderr.write(`[mcp-slow] ${name} ${ok ? 'ok' : 'err'} ${ms}ms${params?.arguments?.hybrid ? ' hybrid' : ''}${params?.arguments?.semantic ? ' semantic' : ''}\n`); };   // 검색어·인자 값은 남기지 않는다

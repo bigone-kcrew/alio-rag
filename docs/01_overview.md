@@ -35,7 +35,7 @@ flowchart TB
     E2["HNSW(halfvec / 비트) 부분 인덱스"]
   end
   subgraph SERVE["⑤ 서빙"]
-    M1["MCP 13개 도구"]
+    M1["MCP 14개 도구"]
     M2["REST API"]
     M3["키·한도·마스킹·로그"]
   end
