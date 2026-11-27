@@ -1,6 +1,6 @@
 # 08. 구조화 조회 · 사례 카드 · `query_sql`
 
-> 기준일 2026-11-26. 근거: `src/serving/structured_query.js`·`structured_expose.js`·`find_cases.js`·`sql_tool.js`·`qlog.js`, `src/extraction/`, DB 구조 조회, 레드팀·검수 보고서(내부). 이 세 도구는 **적재된 표본·추출 결과**를 다루며 공개 서비스에서 가장 오해가 생기기 쉽다. 그래서 한계를 앞에 둔다.
+> 기준일 2026-11-26. 근거: `src/serving/structured_query.js`·`structured_expose.js`·`find_cases.js`·`sql_tool.js`, `src/extraction/`, DB 구조 조회, 레드팀·검수 보고서(내부). 이 세 도구는 **적재된 표본·추출 결과**를 다루며 공개 서비스에서 가장 오해가 생기기 쉽다. 그래서 한계를 앞에 둔다.
 
 ## 0. 네 도구를 이렇게 이해하세요
 
